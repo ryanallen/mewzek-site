@@ -34,5 +34,12 @@
       <div class="note"><strong>At home</strong>Open mewzek.com on home Wi-Fi to use your library. Away from home, <a href="https://lancre.tail210d6c.ts.net:8443/">open the remote player</a>.</div>
     </div>
   </main>
+  <script>
+    if (new URLSearchParams(location.search).get('access') !== 'unavailable') {
+      document.getElementById('landing').hidden = true;
+      document.getElementById('checking').hidden = false;
+      location.replace('https://lancre.tail210d6c.ts.net:8443/?auto=1');
+    }
+  </script>
 </body>
 </html>
