@@ -1,3 +1,5 @@
+// The landing site (mewzek-site) serves this same file at mewzek.com off home Wi-Fi.
+// deploy/sync_site_worker.sh pushes it there whenever it changes on Lancre.
 const SHELL_CACHE = "mewzek-shell-v81";
 const DATA_CACHE = "mewzek-data-v2";
 const AUDIO_CACHE = "mewzek-audio-v2";
