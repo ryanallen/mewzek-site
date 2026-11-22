@@ -1,4 +1,4 @@
-﻿const SHELL_CACHE = "mewzek-shell-v6";
+﻿const SHELL_CACHE = "mewzek-shell-v7";
 const DATA_CACHE = "mewzek-data-v2";
 const AUDIO_CACHE = "mewzek-audio-v1";
 let audioGeneration = 0;
@@ -78,8 +78,13 @@ self.addEventListener("fetch", (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(AUDIO_CACHE);
       const saved = await cache.match(audioKey(decodeURIComponent(url.pathname.slice(12))));
-      if (saved) return rangeResponse(saved, request.headers.get("Range"));
-      return fetch(request);
+      try {
+        const response = await fetch(request);
+        if (response.ok || !saved) return response;
+      } catch {
+        if (!saved) return Response.error();
+      }
+      return rangeResponse(saved, request.headers.get("Range"));
     })());
   } else if (request.mode === "navigate") {
     event.respondWith(cachedFirst(request, SHELL_CACHE));
