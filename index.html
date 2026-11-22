@@ -35,10 +35,18 @@
     </div>
   </main>
   <script>
-    if (new URLSearchParams(location.search).get('access') !== 'unavailable') {
+    // The browser may show this page from its cache while mewzek.com already points at Lancre on
+    // home Wi-Fi. Lancre answers /health with {"ok":true}; then a fresh address opens the home player.
+    var params = new URLSearchParams(location.search);
+    if (params.get('access') !== 'unavailable') {
       document.getElementById('landing').hidden = true;
       document.getElementById('checking').hidden = false;
-      location.replace('https://lancre.tail210d6c.ts.net:8443/?auto=1');
+      var remote = function () { location.replace('https://lancre.tail210d6c.ts.net:8443/?auto=1'); };
+      if (params.has('home')) remote();
+      else fetch('/health', { cache: 'no-store', signal: window.AbortSignal && AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (body) { if (body && body.ok === true) location.replace('/?home=' + Date.now()); else remote(); })
+        .catch(remote);
     }
   </script>
 </body>
