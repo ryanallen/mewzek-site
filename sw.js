@@ -1,4 +1,4 @@
-﻿const SHELL_CACHE = "mewzek-shell-v14";
+const SHELL_CACHE = "mewzek-shell-v15";
 const DATA_CACHE = "mewzek-data-v2";
 const AUDIO_CACHE = "mewzek-audio-v1";
 let audioGeneration = 0;
@@ -8,7 +8,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(SHELL_CACHE);
     await Promise.allSettled([
-      "/", "/assets/style.css?v=34", "/assets/app.js?v=48",
+      "/", "/assets/style.css?v=35", "/assets/app.js?v=49",
       "/assets/mewzek-cat-earbuds.png", "/assets/profile-kittens.png", "/manifest.webmanifest",
     ].map((url) => cache.add(url)));
     await self.skipWaiting();
