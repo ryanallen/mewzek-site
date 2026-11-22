@@ -1,6 +1,8 @@
-const SHELL_CACHE = "mewzek-shell-v15";
+const SHELL_CACHE = "mewzek-shell-v79";
 const DATA_CACHE = "mewzek-data-v2";
-const AUDIO_CACHE = "mewzek-audio-v1";
+const AUDIO_CACHE = "mewzek-audio-v2";
+const ARTWORK_CACHE_LIMIT = 80;
+const CHART_CACHE_LIMIT = 128;
 let audioGeneration = 0;
 const trackGeneration = new Map();
 
@@ -8,7 +10,8 @@ self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(SHELL_CACHE);
     await Promise.allSettled([
-      "/", "/assets/style.css?v=35", "/assets/app.js?v=49",
+      "/", "/assets/style.css?v=41", "/assets/app.js?v=88",
+      "/assets/game.css?v=8", "/assets/game.js?v=18",
       "/assets/mewzek-cat-earbuds.png", "/assets/profile-kittens.png", "/manifest.webmanifest",
     ].map((url) => cache.add(url)));
     await self.skipWaiting();
@@ -26,8 +29,20 @@ self.addEventListener("activate", (event) => {
   })());
 });
 
-function audioKey(id) {
-  return new Request(new URL(`/api/stream/${encodeURIComponent(id)}`, self.location.origin));
+function audioKey(id, version = "") {
+  const path = `/api/stream/${encodeURIComponent(id)}`;
+  return new Request(new URL(version ? `${path}?v=${encodeURIComponent(version)}` : path, self.location.origin));
+}
+
+async function removeAudioVersions(cache, id, keepUrl = null) {
+  const path = `/api/stream/${encodeURIComponent(id)}`;
+  let removed = false;
+  for (const key of await cache.keys()) {
+    if (new URL(key.url).pathname === path && key.url !== keepUrl) {
+      removed = await cache.delete(key) || removed;
+    }
+  }
+  return removed;
 }
 
 async function rangeResponse(cached, range) {
@@ -63,7 +78,27 @@ async function cachedFirst(request, cacheName) {
       if (!isPlayer) return response;
     }
     if (response.status === 404 && saved) return saved;
-    if (response.ok && response.type === "basic") await cache.put(request, response.clone());
+    if (response.ok && response.type === "basic") {
+      try {
+        const isArtwork = new URL(request.url).pathname.startsWith("/api/artwork/");
+        const bytes = Number(response.headers.get("Content-Length"));
+        if (isArtwork && (!Number.isFinite(bytes) || bytes < 1 || bytes > 512 * 1024)) return response;
+        if (isArtwork && !saved) {
+          const artwork = (await cache.keys()).filter((key) => new URL(key.url).pathname.startsWith("/api/artwork/"));
+          for (const key of artwork.slice(0, Math.max(0, artwork.length - ARTWORK_CACHE_LIMIT + 1))) {
+            await cache.delete(key);
+          }
+        }
+        const isChart = new URL(request.url).pathname.startsWith("/api/game/chart/");
+        if (isChart && !saved) {
+          const charts = (await cache.keys()).filter((key) => new URL(key.url).pathname.startsWith("/api/game/chart/"));
+          for (const key of charts.slice(0, Math.max(0, charts.length - CHART_CACHE_LIMIT + 1))) {
+            await cache.delete(key);
+          }
+        }
+        await cache.put(request, response.clone());
+      } catch {}
+    }
     return response;
   } catch {
     return saved || Response.error();
@@ -77,14 +112,25 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/stream/")) {
     event.respondWith((async () => {
       const cache = await caches.open(AUDIO_CACHE);
-      const saved = await cache.match(audioKey(decodeURIComponent(url.pathname.slice(12))));
-      try {
-        const response = await fetch(request);
-        if (response.ok || !saved) return response;
-      } catch {
-        if (!saved) return Response.error();
+      const id = decodeURIComponent(url.pathname.slice(12));
+      const version = url.searchParams.get("v") || "";
+      const key = audioKey(id, version);
+      const range = request.headers.get("Range");
+      const saved = await cache.match(key);
+      if (saved?.status === 200 && saved.headers.get("Content-Type")?.startsWith("audio/")) {
+        if (version) await removeAudioVersions(cache, id, key.url);
+        return rangeResponse(saved, range);
       }
-      return rangeResponse(saved, request.headers.get("Range"));
+      if (range && !/^bytes=0-(?:\d*)$/.test(range)) return fetch(request);
+      try {
+        const response = await fetch(new Request(key, { credentials: "same-origin", cache: "no-store" }));
+        if (response.status === 200 && response.headers.get("Content-Type")?.startsWith("audio/")) {
+          event.waitUntil(saveAudioIfRoom(cache, key, response.clone()).then(async (saved) => {
+            if (saved && version) await removeAudioVersions(cache, id, key.url);
+          }));
+        }
+        return response;
+      } catch { return Response.error(); }
     })());
   } else if (request.mode === "navigate") {
     event.respondWith(cachedFirst(request, SHELL_CACHE));
@@ -96,12 +142,40 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
-async function saveTrack(id) {
+async function saveAudioIfRoom(cache, key, response) {
+  try {
+    const bytes = Number(response.headers.get("Content-Length"));
+    const estimate = await navigator.storage?.estimate?.();
+    if (!Number.isFinite(bytes) || bytes < 1024) return false;
+    if (estimate?.quota) {
+      const reserve = Math.max(100 * 1024 * 1024, estimate.quota * 0.1);
+      if (estimate.quota - estimate.usage < bytes + reserve) return false;
+    }
+    const keys = await cache.keys();
+    let savedBytes = 0;
+    for (const item of keys) {
+      const saved = await cache.match(item);
+      savedBytes += Number(saved?.headers.get("Content-Length")) || 0;
+    }
+    if (savedBytes + bytes > 256 * 1024 * 1024) return false;
+    await cache.put(key, response);
+    const id = decodeURIComponent(new URL(key.url).pathname.split("/").pop());
+    for (const client of await self.clients.matchAll({ type: "window" })) {
+      client.postMessage({ type: "audio-saved", id });
+    }
+    return true;
+  } catch { return false; }
+}
+
+async function saveTrack(id, version = "") {
   const generation = audioGeneration;
   const trackVersion = trackGeneration.get(id) || 0;
-  const key = audioKey(id);
+  const key = audioKey(id, version);
   const cache = await caches.open(AUDIO_CACHE);
-  if (await cache.match(key)) return { saved: true };
+  if (await cache.match(key)) {
+    if (version) await removeAudioVersions(cache, id, key.url);
+    return { saved: true };
+  }
   const response = await fetch(new Request(key, { credentials: "same-origin", cache: "no-store" }));
   if (response.status !== 200 || !response.headers.get("Content-Type")?.startsWith("audio/")) {
     throw new Error("Audio is not ready to save offline");
@@ -109,12 +183,13 @@ async function saveTrack(id) {
   if (generation !== audioGeneration || trackVersion !== (trackGeneration.get(id) || 0)) {
     return { saved: false };
   }
-  await cache.put(key, response);
+  const saved = await saveAudioIfRoom(cache, key, response);
   if (generation !== audioGeneration || trackVersion !== (trackGeneration.get(id) || 0)) {
-    await cache.delete(key);
+    if (saved) await cache.delete(key);
     return { saved: false };
   }
-  return { saved: true };
+  if (saved && version) await removeAudioVersions(cache, id, key.url);
+  return { saved };
 }
 
 self.addEventListener("message", (event) => {
@@ -123,11 +198,13 @@ self.addEventListener("message", (event) => {
   event.waitUntil((async () => {
     try {
       let result = {};
-      if (type === "save-track" && /^[A-Za-z0-9:_-]{1,100}$/.test(id || "")) {
-        result = await saveTrack(id);
+      if (type === "save-track" && /^[A-Za-z0-9:_-]{1,100}$/.test(id?.track_id || id || "")
+          && /^[A-Za-z0-9_.-]{0,100}$/.test(id?.version || "")) {
+        result = await saveTrack(id?.track_id || id, id?.version || "");
       } else if (type === "remove-track" && /^[A-Za-z0-9:_-]{1,100}$/.test(id || "")) {
         trackGeneration.set(id, (trackGeneration.get(id) || 0) + 1);
-        result = { removed: await (await caches.open(AUDIO_CACHE)).delete(audioKey(id)) };
+        const cache = await caches.open(AUDIO_CACHE);
+        result = { removed: await removeAudioVersions(cache, id) };
       } else if (type === "clear-downloads") {
         audioGeneration++;
         result = { cleared: await caches.delete(AUDIO_CACHE) };
@@ -136,7 +213,7 @@ self.addEventListener("message", (event) => {
         const cache = await caches.open(`${DATA_CACHE}-${profile}`);
         const extra = Array.isArray(id?.paths) ? id.paths.filter((path) =>
           typeof path === "string" && path.startsWith("/api/") && !path.startsWith("/api/device/")) : [];
-        for (const path of ["/api/me", "/api/playlists", "/api/coverage", ...extra]) {
+        for (const path of [...extra, ...(id?.core === false ? [] : ["/api/me", "/api/playlists", "/api/coverage"])]) {
           const request = new Request(path, { credentials: "same-origin", headers: { "X-Mewzek-Profile": profile } });
           const response = await fetch(request);
           if (response.ok) await cache.put(request, response);
