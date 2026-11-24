@@ -41,7 +41,12 @@
     if (params.get('access') !== 'unavailable') {
       document.getElementById('landing').hidden = true;
       document.getElementById('checking').hidden = false;
-      var remote = function () { location.replace('https://lancre.tail210d6c.ts.net:8443/?auto=1'); };
+      // The player keeps a home-issued key here because Safari drops the away address's cookie.
+      var remote = function () {
+        var key = null;
+        try { key = localStorage.getItem('mewzek-away-key'); } catch (e) {}
+        location.replace('https://lancre.tail210d6c.ts.net:8443/?auto=1' + (key ? '&key=' + encodeURIComponent(key) : ''));
+      };
       if (params.has('home')) remote();
       else fetch('/health', { cache: 'no-store', signal: window.AbortSignal && AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined })
         .then(function (r) { return r.ok ? r.json() : null; })
