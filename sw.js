@@ -1,6 +1,6 @@
 // The landing site (mewzek-site) serves this same file at mewzek.com off home Wi-Fi.
 // deploy/sync_site_worker.sh pushes it there whenever it changes on Lancre.
-const SHELL_CACHE = "mewzek-shell-v100";
+const SHELL_CACHE = "mewzek-shell-v101";
 const DATA_CACHE = "mewzek-data-v2";
 const AUDIO_CACHE = "mewzek-audio-v2";
 const ARTWORK_CACHE_LIMIT = 80;
@@ -13,7 +13,7 @@ self.addEventListener("install", (event) => {
     const cache = await caches.open(SHELL_CACHE);
     await Promise.allSettled([
       "/", "/assets/style.css?v=42", "/assets/app.js?v=94",
-      "/assets/game.css?v=18", "/assets/game.js?v=31",
+      "/assets/game.css?v=18", "/assets/game.js?v=32",
       "/assets/mewzek-cat-earbuds.png", "/assets/profile-kittens.png", "/manifest.webmanifest",
     ].map((url) => cache.add(url)));
     await self.skipWaiting();
