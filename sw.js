@@ -12,7 +12,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(SHELL_CACHE);
     await Promise.allSettled([
-      "/", "/assets/style.css?v=41", "/assets/app.js?v=93",
+      "/", "/assets/style.css?v=42", "/assets/app.js?v=94",
       "/assets/game.css?v=15", "/assets/game.js?v=28",
       "/assets/mewzek-cat-earbuds.png", "/assets/profile-kittens.png", "/manifest.webmanifest",
     ].map((url) => cache.add(url)));
